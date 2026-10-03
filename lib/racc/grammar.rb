@@ -23,11 +23,13 @@ module Racc
 
     def initialize(debug_flags = DebugFlags.new)
       @symboltable = SymbolTable.new
+      @debug_flags = debug_flags
       @debug_symbol = debug_flags.token
       @rules   = []  # :: [Rule]
       @start   = nil
       @n_expected_srconflicts = nil
       @error_on_expect_mismatch = nil
+      @canonical_lr = false
       @prec_table = []
       @prec_table_closed = false
       @closed = false
@@ -38,6 +40,7 @@ module Racc
     attr_reader :symboltable
     attr_accessor :n_expected_srconflicts
     attr_accessor :error_on_expect_mismatch
+    attr_accessor :canonical_lr
 
     def [](x)
       @rules[x]
@@ -116,11 +119,11 @@ module Racc
     end
 
     def nfa
-      (@states ||= States.new(self)).nfa
+      (@states ||= States.new(self, @debug_flags, @canonical_lr)).nfa
     end
 
     def dfa
-      (@states ||= States.new(self)).dfa
+      (@states ||= States.new(self, @debug_flags, @canonical_lr)).dfa
     end
 
     alias states dfa

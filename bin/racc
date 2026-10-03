@@ -27,6 +27,7 @@ def main
   superclass = nil
   check_only = false
   verbose = false
+  canonical_lr = nil
   profiler = RaccProfiler.new(false)
 
   parser = OptionParser.new
@@ -77,6 +78,10 @@ def main
   }
   parser.on('-C', '--check-only', 'Checks syntax and quit immediately.') {|fl|
     check_only = fl
+  }
+  parser.on('--canonical-lr',
+            'Build canonical LR(1) states instead of LALR(1) states.') {|fl|
+    canonical_lr = fl
   }
   parser.on('-S', '--output-status', 'Outputs internal status time to time.') {
     verbose = true
@@ -140,9 +145,11 @@ def main
       exit
     end
 
-    $stderr.puts 'Generating LALR states...' if verbose
+    use_canonical_lr = canonical_lr.nil? ? result.grammar.canonical_lr : canonical_lr
+    state_kind = use_canonical_lr ? 'canonical LR(1)' : 'LALR(1)'
+    $stderr.puts "Generating #{state_kind} states..." if verbose
     states = profiler.section('nfa') {
-      Racc::States.new(result.grammar).nfa
+      Racc::States.new(result.grammar, debug_flags, use_canonical_lr).nfa
     }
 
     $stderr.puts "Resolving #{states.size} states..." if verbose

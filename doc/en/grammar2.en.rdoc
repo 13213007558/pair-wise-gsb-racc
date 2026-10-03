@@ -163,6 +163,10 @@ uses local variable "result" or not.
 
 You can use 'no_' prefix to invert their meanings.
 
+* canonical_lr
+
+builds canonical LR(1) states instead of the default LALR(1) states.
+
 == Converting Token Symbol
 
 Token symbols are, as default,

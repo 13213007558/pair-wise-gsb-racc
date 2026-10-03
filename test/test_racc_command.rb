@@ -1,4 +1,5 @@
 require File.expand_path(File.join(__dir__, 'case'))
+require 'open3'
 
 module Racc
   class TestRaccCommand < TestCase
@@ -67,6 +68,52 @@ module Racc
     def test_rrconf_y
       assert_compile 'rrconf.y'
       assert_debugfile 'rrconf.y', [1,1,0,0]
+    end
+
+    def test_canonical_lr_removes_lalr_reduce_reduce_conflict
+      log = File.join(@OUT_DIR, 'canonical_lr_lalr')
+      parser = File.join(@TAB_DIR, 'canonical_lr_lalr')
+      _stdout, stderr, wait = Open3.capture3(
+        'ruby', '-I', LIB_DIR, '-S', RACC, '-O', log, '-o', parser,
+        File.join(ASSET_DIR, 'canonical_lr.y')
+      )
+      assert_predicate wait, :success?
+      assert_match(/2 reduce\/reduce conflicts/, stderr)
+      assert_match(/State \(LALR\(1\), 16 states\)/, File.read(log))
+
+      log = File.join(@OUT_DIR, 'canonical_lr_clr')
+      parser = File.join(@TAB_DIR, 'canonical_lr_clr')
+      _stdout, stderr, wait = Open3.capture3(
+        'ruby', '-I', LIB_DIR, '-S', RACC, '--canonical-lr', '-O', log,
+        '-o', parser, File.join(ASSET_DIR, 'canonical_lr.y')
+      )
+      assert_predicate wait, :success?
+      assert_equal '', stderr
+      output = File.read(log)
+      assert_match(/State \(canonical LR\(1\), 17 states\)/, output)
+      assert_no_match(/reduce\/reduce conflicts?/, output)
+
+      %w[acd bcd acu bcu].each do |input|
+        _stdout, _stderr, wait = Open3.capture3(
+          { 'RACC_CANONICAL_LR_INPUT' => input },
+          'ruby', '-I', LIB_DIR, '-rracc/parser', parser
+        )
+        assert_predicate wait, :success?, "stdout=#{_stdout}\nstderr=#{_stderr}"
+        assert_equal({ 'acd' => 'ad', 'bcd' => 'bd',
+                       'acu' => 'au', 'bcu' => 'bu' }[input], _stdout)
+      end
+    end
+
+    def test_canonical_lr_reports_real_reduce_reduce_conflict
+      log = File.join(@OUT_DIR, 'canonical_lr_ambiguous')
+      parser = File.join(@TAB_DIR, 'canonical_lr_ambiguous')
+      _stdout, stderr, wait = Open3.capture3(
+        'ruby', '-I', LIB_DIR, '-S', RACC, '--canonical-lr', '-O', log,
+        '-o', parser, File.join(ASSET_DIR, 'canonical_lr_ambiguous.y')
+      )
+      assert_predicate wait, :success?
+      assert_match(/1 reduce\/reduce conflict/, stderr)
+      assert_match(/contains 1 reduce\/reduce conflicts/, File.read(log))
     end
 
     def test_useless_y

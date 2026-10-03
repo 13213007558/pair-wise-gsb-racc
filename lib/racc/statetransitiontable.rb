@@ -121,7 +121,11 @@ module Racc
         end
         addent e1, vector, state.ident, yypact
       end
-      set_table e1, e2, yytable, yycheck, yypact
+      if @states.canonical_lr?
+        set_table_safely e1, yytable, yycheck, yypact
+      else
+        set_table e1, e2, yytable, yycheck, yypact
+      end
     end
 
     def gen_goto_tables(t, grammar)
@@ -163,7 +167,38 @@ module Racc
 
         addent e1, tmp, (tok.ident - grammar.nonterminal_base), yypgoto
       end
-      set_table e1, e2, yytable2, yycheck2, yypgoto
+      if @states.canonical_lr?
+        set_table_safely e1, yytable2, yycheck2, yypgoto
+      else
+        set_table e1, e2, yytable2, yycheck2, yypgoto
+      end
+    end
+
+    def set_table_safely(entries, tbl, chk, ptr)
+      entries.sort_by!.with_index {|a, i| [-a[0].size, i] }
+
+      entries.each do |arr, chkval, _expr, min, ptri|
+        idx = 0
+        while true
+          collision = false
+          arr.each_with_index do |item, i|
+            next unless item
+            position = idx + i
+            existing = tbl[position]
+            collision = true if existing && !(chk[position] == chkval && existing == item)
+          end
+          break unless collision
+          idx += 1
+        end
+
+        ptr[ptri] = idx - min
+        arr.each_with_index do |item, i|
+          next unless item
+          position = idx + i
+          tbl[position] = item
+          chk[position] = chkval
+        end
+      end
     end
 
     def addent(all, arr, chkval, ptr)

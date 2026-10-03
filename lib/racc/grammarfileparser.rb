@@ -66,6 +66,8 @@ module Racc
                           @result.params.omit_action_call = true
                         when 'no_omit_action_call'
                           @result.params.omit_action_call = false
+                        when 'canonical_lr'
+                          @grammar.canonical_lr = true
                         else
                           raise CompileError, "unknown option: #{opt}"
                         end

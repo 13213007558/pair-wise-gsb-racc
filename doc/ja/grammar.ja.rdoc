@@ -259,6 +259,10 @@ options オプション オプション …
 です。
 それぞれ no_ を頭につけることで意味を反転できます。
 
+  * canonical_lr
+
+デフォルトの LALR(1) ではなく canonical LR(1) の状態を構築します。
+
 === expect
 
 実用になるパーサはたいてい無害な shift/reduce conflict を含みます。
