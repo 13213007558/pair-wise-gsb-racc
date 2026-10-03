@@ -65,13 +65,20 @@ module Racc
 
     def output_state(out)
       out << "--------- State ---------\n"
+      out << "mode #{@states.canonical_lr1? ? 'canonical LR(1)' : 'LALR(1)'}\n"
+      out << "states #{@states.size}\n"
 
       showall = @debug_flags.la || @debug_flags.state
       @states.each do |state|
         out << "\nstate #{state.ident}\n\n"
 
-        (showall ? state.closure : state.core).each do |ptr|
-          pointer_out(out, ptr) if ptr.rule.ident != 0 or showall
+        items = (showall || state.canonical_lr1?) ? state.closure : state.core
+        items.each do |item|
+          if state.canonical_lr1?
+            pointer_out(out, item.ptr, item.lookahead) if item.rule.ident != 0 or showall
+          else
+            pointer_out(out, item) if item.rule.ident != 0 or showall
+          end
         end
         out << "\n"
 
@@ -79,13 +86,14 @@ module Racc
       end
     end
 
-    def pointer_out(out, ptr)
+    def pointer_out(out, ptr, lookahead = nil)
       buf = sprintf("%4d) %s :", ptr.rule.ident, ptr.rule.target.to_s)
       ptr.rule.symbols.each_with_index do |tok, idx|
         buf << ' _' if idx == ptr.index
         buf << ' ' << tok.to_s
       end
       buf << ' _' if ptr.reduce?
+      buf << "    [#{lookahead}]" if lookahead
       out.puts buf
     end
 

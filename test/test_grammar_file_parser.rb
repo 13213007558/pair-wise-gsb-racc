@@ -27,6 +27,22 @@ module Racc
       assert_equal 'Foo::Bar', result.params.classname
     end
 
+    def test_canonical_lr1_grammar_option
+      parser = Racc::GrammarFileParser.new
+      result = parser.parse(<<~RACC, 'canonical.y')
+        class Parse
+        options canonical_lr1
+        rule
+          target : TERM
+        end
+      RACC
+
+      assert_predicate result.grammar, :canonical_lr1?
+      states = result.grammar.dfa
+      assert_equal 5, states.size
+      assert(states.any? { |state| state.closure.first.is_a?(Racc::LR1Item) })
+    end
+
     def test_reject_colon_prefixed_symbol_in_rule_body
       parser = Racc::GrammarFileParser.new
       error = assert_raise(CompileError) do

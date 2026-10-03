@@ -154,6 +154,10 @@ You can write options for racc command in your racc file.
 
 Options are:
 
+  * canonical_lr1
+
+build canonical LR(1) states instead of merging states as LALR(1).
+
   * omit_action_call
 
 omit empty action call or not.

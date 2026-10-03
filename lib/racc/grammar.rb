@@ -28,6 +28,7 @@ module Racc
       @start   = nil
       @n_expected_srconflicts = nil
       @error_on_expect_mismatch = nil
+      @canonical_lr1 = false
       @prec_table = []
       @prec_table_closed = false
       @closed = false
@@ -38,6 +39,11 @@ module Racc
     attr_reader :symboltable
     attr_accessor :n_expected_srconflicts
     attr_accessor :error_on_expect_mismatch
+    attr_accessor :canonical_lr1
+
+    def canonical_lr1?
+      @canonical_lr1
+    end
 
     def [](x)
       @rules[x]
@@ -116,11 +122,11 @@ module Racc
     end
 
     def nfa
-      (@states ||= States.new(self)).nfa
+      (@states ||= States.new(self, DebugFlags.new, @canonical_lr1)).nfa
     end
 
     def dfa
-      (@states ||= States.new(self)).dfa
+      (@states ||= States.new(self, DebugFlags.new, @canonical_lr1)).dfa
     end
 
     alias states dfa

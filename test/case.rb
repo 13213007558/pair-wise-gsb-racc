@@ -68,6 +68,7 @@ module Racc
           when /un/ then assert_equal "un#{ok[2]}", line
           when /ur/ then assert_equal "ur#{ok[3]}", line
           when /ex/ then assert_equal "ex#{ok[4]}", line
+          when /^(mode|states)/ then next
           else
             raise TestFailed, 'racc outputs unknown debug report???'
           end

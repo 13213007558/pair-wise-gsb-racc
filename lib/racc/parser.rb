@@ -38,6 +38,7 @@ end
 #          [--superclass=<var>classname</var>]
 #          [-C] [--check-only]
 #          [-S] [--output-status]
+#          [-c] [--canonical-lr1]
 #          [-P]
 #          [-D<var>flags</var>]
 #          [--version] [--runtime-version] [--copyright] [--help] <var>grammarfile</var>
@@ -74,6 +75,8 @@ end
 #   Check syntax of racc grammar file and quit.
 # [-S, --output-status]
 #   Print messages time to time while compiling.
+# [-c, --canonical-lr1]
+#   Build canonical LR(1) states instead of the default LALR(1) states.
 # [-P]
 #   Enables generator profile mode.
 # [-D +flags+]

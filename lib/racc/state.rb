@@ -17,14 +17,15 @@ require 'forwardable'
 
 module Racc
 
-  # A table of LALR states.
+  # A table of LALR(1) or canonical LR(1) states.
   class States
 
     include Enumerable
 
-    def initialize(grammar, debug_flags = DebugFlags.new)
+    def initialize(grammar, debug_flags = DebugFlags.new, canonical_lr1 = false)
       @grammar = grammar
       @symboltable = grammar.symboltable
+      @canonical_lr1 = canonical_lr1
       @d_state = debug_flags.state
       @d_la    = debug_flags.la
       @d_prec  = debug_flags.prec
@@ -37,6 +38,11 @@ module Racc
 
     attr_reader :grammar
     attr_reader :actions
+    attr_reader :canonical_lr1
+
+    def canonical_lr1?
+      @canonical_lr1
+    end
 
     def size
       @states.size
@@ -114,8 +120,13 @@ module Racc
 
     def compute_nfa
       @grammar.init
+      compute_first_sets if @canonical_lr1
       # add state 0
-      core_to_state  [ @grammar[0].ptrs[0] ]
+      if @canonical_lr1
+        core_to_state [ LR1Item.new(@grammar[0].ptrs[0], @symboltable.anchor) ]
+      else
+        core_to_state [ @grammar[0].ptrs[0] ]
+      end
       # generate LALR states
       cur = 0
       @gotos = []
@@ -130,15 +141,19 @@ module Racc
       puts "dstate: #{state}" if @d_state
 
       table = {}
-      state.closure.each do |ptr|
-        if sym = ptr.dereference
-          addsym table, sym, ptr.next
+      state.closure.each do |item|
+        if @canonical_lr1
+          if sym = item.ptr.dereference
+            add_lr1sym table, sym, item.next
+          end
+        elsif sym = item.dereference
+          addsym table, sym, item.next
         end
       end
       table.each do |sym, core|
         puts "dstate: sym=#{sym} ncore=#{core}" if @d_state
 
-        dest = core_to_state(core.to_a)
+        dest = core_to_state(@canonical_lr1 ? core.values : core.to_a)
         state.goto_table[sym] = dest
         id = sym.nonterminal?() ? @gotos.size : nil
         g = Goto.new(id, sym, state, dest)
@@ -148,9 +163,11 @@ module Racc
 
         # check infinite recursion
         if state.ident == dest.ident and state.closure.size == 1
+          first_item = state.closure[0]
+          first_item = first_item.ptr if @canonical_lr1
           raise CompileError,
               sprintf("Infinite recursion: state %d, with rule %d",
-                      state.ident, state.ptrs[0].rule.ident)
+                      state.ident, first_item.rule.ident)
         end
       end
     end
@@ -162,16 +179,23 @@ module Racc
       s.add ptr
     end
 
+    def add_lr1sym(table, sym, item)
+      set = table[sym] ||= {}
+      set[item.ident] ||= item
+    end
+
     def core_to_state(core)
       #
       # convert CORE to a State object.
       # If matching state does not exist, create it and add to the table.
       #
 
+      core = core.sort_by(&:ident) if @canonical_lr1
       k = fingerprint(core)
       unless dest = @statecache[k]
         # not registered yet
-        dest = State.new(@states.size, core)
+        dest = State.new(@states.size, core, @canonical_lr1,
+                         @symboltable, @first || {})
         @states.push dest
 
         @statecache[k] = dest
@@ -188,7 +212,43 @@ module Racc
     end
 
     def fingerprint(arr)
-      arr.map {|i| i.ident }.pack('L*')
+      if @canonical_lr1
+        arr.map {|i| [i.ptr.ident, i.lookahead.ident] }
+      else
+        arr.map {|i| i.ident }.pack('L*')
+      end
+    end
+
+    def compute_first_sets
+      @first = {}
+      @symboltable.each_terminal do |sym|
+        @first[sym] = 1 << sym.ident
+      end
+      @symboltable.each_nonterminal do |sym|
+        @first[sym] = 0
+      end
+
+      changed = true
+      while changed
+        changed = false
+        @grammar.each do |rule|
+          next if rule.ident == 0
+          first = first_of_rule(rule.symbols)
+          unless (@first[rule.target] | first) == @first[rule.target]
+            @first[rule.target] |= first
+            changed = true
+          end
+        end
+      end
+    end
+
+    def first_of_rule(symbols)
+      first = 0
+      symbols.each do |sym|
+        first |= @first[sym]
+        return first unless sym.nullable?
+      end
+      first
     end
 
     #
@@ -208,10 +268,17 @@ module Racc
     private
 
     def compute_dfa
-      la = lookahead()
-      @states.each do |state|
-        state.la = la
-        resolve state
+      if @canonical_lr1
+        @states.each do |state|
+          state.check_lr1
+          resolve_lr1 state
+        end
+      else
+        la = lookahead()
+        @states.each do |state|
+          state.la = la
+          resolve state
+        end
       end
       set_accept
       @states.each do |state|
@@ -454,6 +521,21 @@ module Racc
       end
     end
 
+    def resolve_lr1(state)
+      state.ritems.each do |item|
+        act = state.action[item.lookahead]
+        if act
+          unless act.kind_of?(Reduce)
+            raise "racc: fatal: #{act.class} in action table"
+          end
+          state.rr_conflict act.rule, item.rule, item.lookahead
+        else
+          state.action[item.lookahead] = @actions.reduce(item.rule)
+        end
+      end
+      resolve_sr state, state.stokens
+    end
+
     def resolve_rr(state, r)
       r.each do |item|
         item.each_la(@symboltable) do |t|
@@ -575,6 +657,12 @@ module Racc
       i = arr.max
       s = (i > 0) ? arr.index(i) : nil
 
+      if state.canonical_lr1?
+        distinct_reduces = act.values.select {|a| a.kind_of?(Reduce) }
+                                         .map(&:ruleid).uniq.size
+        s = nil if distinct_reduces > 1
+      end
+
       ### set & delete default action
       if s
         r = @actions.reduce(s)
@@ -607,16 +695,21 @@ module Racc
   end   # class StateTable
 
 
-  # A LALR state.
+  # A parser state.
   class State
 
-    def initialize(ident, core)
+    def initialize(ident, core, canonical_lr1 = false,
+                   symboltable = nil, first_sets = nil)
       @ident = ident
       @core = core
+      @canonical_lr1 = canonical_lr1
+      @symboltable = symboltable
+      @first_sets = first_sets
       @goto_table = {}
       @gotos = {}
       @stokens = nil
       @ritems = nil
+      @rrules = []
       @action = {}
       @defact = nil
       @rrconf = nil
@@ -645,6 +738,10 @@ module Racc
     attr_reader :rrconf
     attr_reader :srconf
 
+    def canonical_lr1?
+      @canonical_lr1
+    end
+
     def inspect
       "<state #{@ident}>"
     end
@@ -658,6 +755,10 @@ module Racc
     alias eql? ==
 
     def make_closure(core)
+      if @canonical_lr1
+        return make_lr1_closure(core)
+      end
+
       set = ISet.new
       core.each do |ptr|
         set.add ptr
@@ -666,6 +767,62 @@ module Racc
         end
       end
       set.to_a
+    end
+
+    def make_lr1_closure(core)
+      items = {}
+      core.each do |item|
+        items[item.ident] = item
+      end
+
+      changed = true
+      while changed
+        changed = false
+        items.values.each do |item|
+          sym = item.ptr.dereference
+          next unless sym && sym.nonterminal?
+
+          first = first_after(item.ptr.next)
+          first |= 1 << item.lookahead.ident if first.zero?
+          sym.heads.each do |head|
+            each_lookahead(first) do |lookahead|
+              lr1 = LR1Item.new(head, lookahead)
+              unless items[lr1.ident]
+                items[lr1.ident] = lr1
+                changed = true
+              end
+            end
+          end
+        end
+      end
+
+      items.values
+    end
+
+    def first_after(ptr)
+      first = 0
+      while ptr
+        sym = ptr.dereference
+        if sym.nil?
+          return first
+        else
+          first |= @first_sets.fetch(sym, 0)
+          return first unless sym.nullable?
+        end
+        ptr = ptr.next
+      end
+      first
+    end
+
+    def each_lookahead(bitmap)
+      index = 0
+      until bitmap == 0
+        if bitmap & 1 == 1
+          yield @symboltable[index]
+        end
+        bitmap >>= 1
+        index += 1
+      end
     end
 
     def check_la(la_rules)
@@ -699,6 +856,40 @@ module Racc
         la_rules.concat r
       else
         @la_rules_i = @la_rules = nil
+      end
+    end
+
+    def check_lr1
+      @conflict = false
+      @stokens = []
+      @ritems = []
+      @rrules = []
+      seen_shift = {}
+      reduce_bits = Hash.new(0)
+
+      @closure.each do |item|
+        sym = item.ptr.dereference
+        if sym
+          next unless sym.terminal?
+          unless seen_shift[sym.ident]
+            @stokens.push sym
+            seen_shift[sym.ident] = true
+            @conflict = true if sym.ident == 1
+          end
+        else
+          @ritems.push item
+          @rrules.push item.rule unless @rrules.include?(item.rule)
+          reduce_bits[item.rule.ident] |= 1 << item.lookahead.ident
+        end
+      end
+
+      if reduce_bits.size > 1
+        reduce_bits.values.combination(2).each do |left, right|
+          unless (left & right).zero?
+            @conflict = true
+            break
+          end
+        end
       end
     end
 
@@ -784,6 +975,36 @@ module Racc
     def inspect
       "(#{@from_state.ident}-#{@symbol}->#{@to_state.ident})"
     end
+  end
+
+
+  # A canonical LR(1) item: a rule position and one lookahead token.
+  class LR1Item
+    def initialize(ptr, lookahead)
+      @ptr = ptr
+      @lookahead = lookahead
+    end
+
+    attr_reader :ptr
+    attr_reader :lookahead
+
+    def ident
+      [@ptr.ident, @lookahead.ident]
+    end
+
+    def next
+      LR1Item.new(@ptr.next, @lookahead)
+    end
+
+    def rule
+      @ptr.rule
+    end
+
+    def inspect
+      "#{@ptr} [#{@lookahead}]"
+    end
+
+    alias to_s inspect
   end
 
 

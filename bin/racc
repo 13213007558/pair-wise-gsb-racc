@@ -27,6 +27,7 @@ def main
   superclass = nil
   check_only = false
   verbose = false
+  canonical_lr1 = false
   profiler = RaccProfiler.new(false)
 
   parser = OptionParser.new
@@ -80,6 +81,10 @@ def main
   }
   parser.on('-S', '--output-status', 'Outputs internal status time to time.') {
     verbose = true
+  }
+  parser.on('-c', '--canonical-lr1',
+            'Build canonical LR(1) states instead of LALR(1) states.') {|fl|
+    canonical_lr1 = fl
   }
   parser.on('-P', 'Enables generator profile') {
     profiler = RaccProfiler.new(true)
@@ -135,14 +140,17 @@ def main
       content = input == "stdin" ? ARGF.read : File.read(input)
       parser.parse(content, File.basename(input))
     }
+    result.grammar.canonical_lr1 = true if canonical_lr1
     if check_only
       $stderr.puts 'syntax ok'
       exit
     end
 
-    $stderr.puts 'Generating LALR states...' if verbose
+    state_kind = result.grammar.canonical_lr1? ? 'canonical LR(1)' : 'LALR(1)'
+    $stderr.puts "Generating #{state_kind} states..." if verbose
     states = profiler.section('nfa') {
-      Racc::States.new(result.grammar).nfa
+      Racc::States.new(result.grammar, debug_flags,
+                       result.grammar.canonical_lr1?).nfa
     }
 
     $stderr.puts "Resolving #{states.size} states..." if verbose

@@ -69,6 +69,23 @@ module Racc
       assert_debugfile 'rrconf.y', [1,1,0,0]
     end
 
+    def test_canonical_lr1_removes_lalr_reduce_reduce_conflict
+      assert_compile 'canonical_lr1.y', '-v'
+      assert_debugfile 'canonical_lr1.y', [0,2,0,0]
+      log = File.join(@OUT_DIR, 'canonical_lr1')
+      assert_match(/^states 17$/, File.read(log))
+
+      assert_compile 'canonical_lr1.y', ['-c', '-v']
+      assert_debugfile 'canonical_lr1.y', [0,0,0,0]
+      assert_match(/^states 18$/, File.read(log))
+      assert_exec 'canonical_lr1.y'
+    end
+
+    def test_canonical_lr1_reports_real_reduce_reduce_conflict
+      assert_compile 'canonical_lr1_conflict.y', ['-c', '-v']
+      assert_debugfile 'canonical_lr1_conflict.y', [0,1,1,2]
+    end
+
     def test_useless_y
       assert_compile 'useless.y'
       assert_debugfile 'useless.y', [0,0,1,2]
